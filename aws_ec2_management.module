@@ -27,6 +27,9 @@ function aws_ec2_management_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_CALLBACK,
   );
+/* TODO: Move these into some way to designate 
+ * and select instances in more permenant way, 
+ * perhaps via ctools exportables
   $items['instance/%/use-for-meetings'] = array(
     'title' => t('Use an instance for meetings'),
     'page callback' => 'aws_ec2_management_instance_actions',
@@ -41,7 +44,7 @@ function aws_ec2_management_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_CALLBACK,
   );
-
+*/
   return $items;
 }
 
@@ -64,9 +67,10 @@ function aws_ec2_management_help($path, $arg) {
  * Admin form for starting/stopping instances.
  */
 function aws_ec2_management_ec2_remote_dashboard($form, $form_state) {
-  drupal_set_title('EC2 Remote Dashboard');
   require libraries_get_path('awssdk') . '/sdk.class.php';
 
+// TODO: use AWS AmazonEC2 constants
+// TODO: Store and use a default region on page load
   $form['region_select'] = array(
     '#title' => t('Region settings.'),
     '#type' => 'select',
