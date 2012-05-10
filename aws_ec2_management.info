@@ -1,0 +1,5 @@
+name = Amazon EC2 Management 
+description = Simple module to manage instances.
+package = Custom modules
+core = 7.x
+files[] = aws_ec2_management.module

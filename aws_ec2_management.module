@@ -1,0 +1,272 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function aws_ec2_management_menu() {
+  $items = array();
+
+  $items['admin/config/media/ec2-instances'] = array(
+    'title' => t('AWS EC2 Remote Dashboard'),
+    'description' => 'Remotely Manage your EC2 Instances',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('aws_ec2_management_ec2_remote_dashboard'),
+    'access arguments' => array('access administration pages'),
+  );
+  $items['instance/%/start'] = array(
+    'title' => t('Start an instance'),
+    'page callback' => 'aws_ec2_management_instance_actions',
+    'page arguments' => array(1, 'start'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['instance/%/stop'] = array(
+    'title' => t('Stop an instance'),
+    'page callback' => 'aws_ec2_management_instance_actions',
+    'page arguments' => array(1, 'stop'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['instance/%/use-for-meetings'] = array(
+    'title' => t('Use an instance for meetings'),
+    'page callback' => 'aws_ec2_management_instance_actions',
+    'page arguments' => array(1, 'use_for_meetings'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['instance/%/do-not-use-for-meetings'] = array(
+    'title' => t('Do not use an instance for meetings'),
+    'page callback' => 'aws_ec2_management_instance_actions',
+    'page arguments' => array(1, 'do_not_use_for_meetings'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_help().
+ */
+function aws_ec2_management_help($path, $arg) {
+  switch ($path) {
+    case 'admin/config/media/ec2-instances':
+    if (module_exists('awssdk_ui')) {
+      return '<p>' . t('Amazon Web Services authentication can be configured at the <a href="@awssdk_config">AWS SDK configuration page</a>.', array('@awssdk_config' => url('admin/config/media/awssdk'))) . '</p>';
+    }
+    else {
+      return '<p>' . t('Enable \'AWS SDK for PHP UI\' module to configure your Amazon Web Services authentication. Configuration can also be defined in the $conf array in settings.php.', array('@awssdk_config' => url('admin/config/media/awssdk'))) . '</p>';
+    }
+  }
+}
+
+/**
+ * Admin form for starting/stopping instances.
+ */
+function aws_ec2_management_ec2_remote_dashboard($form, $form_state) {
+  drupal_set_title('EC2 Remote Dashboard');
+  require libraries_get_path('awssdk') . '/sdk.class.php';
+
+  $form['region_select'] = array(
+    '#title' => t('Region settings.'),
+    '#type' => 'select',
+    '#options' => array(
+      'no_region' => '-Select-',
+      'ec2.us-east-1.amazonaws.com' => 'United States East (Northern Virginia)',
+      'ec2.us-west-1.amazonaws.com' => 'United States West (Northern California)',
+      'ec2.us-west-2.amazonaws.com' => 'United States West (Oregon)',
+      'ec2.eu-west-1.amazonaws.com' => 'Europe West (Ireland)',
+      'ec2.ap-southeast-1.amazonaws.com' => 'Asia Pacific Southeast (Singapore)',
+      'ec2.ap-northeast-1.amazonaws.com' => 'Asia Pacific Northeast (Tokyo)',
+      'ec2.us-gov-west-1.amazonaws.com' => 'United States GovCloud',
+      'ec2.sa-east-1.amazonaws.com' => 'South America (Sao Paulo)'),
+    '#default_value' => 'no_region',
+    '#required' => TRUE,
+    '#weight' => -2000,
+    '#description' => t('Please choose the region. Note, that selected region will be used for start/stop operations.'),
+    '#ajax' => array(
+      'callback' => 'aws_ec2_management_ajax_callback',
+      'wrapper' => 'instances-list',
+      'method' => 'replace',
+      'effect' => 'fade',
+    ),
+  );
+
+//fieldset for the list of instances
+  $form['instances_fieldset'] = array(
+    '#title' => t('Instances'),
+    '#prefix' => '<div id="instances-list">',
+    '#suffix' => '</div>',
+    '#type' => 'fieldset',
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  return $form;
+}
+
+/**
+ * Menu callback for starting/stopping instances.
+ */
+function aws_ec2_management_instance_actions($instance_id, $case = '') {
+  include libraries_get_path('awssdk') . '/sdk.class.php';
+  $options = array(
+    'key' => variable_get('aws_key'),
+    'secret' => variable_get('aws_secret'),
+  );
+
+  $instance = new AmazonEC2($options);
+  $region = variable_get('aws_ec2_region');
+  $instance->set_region((string) $region);
+
+  if ($case == 'start') {
+    $response = $instance->start_instances($instance_id);
+    if ($response->isOK()) {
+      $response_obj = $response->body->to_stdClass();
+      drupal_set_message('Instance ' . $instance_id . ' is being started now. Its status is ' . $response_obj->instancesSet->item->currentState->name . ' now. Please, wait for a while and refresh the page');
+    }
+    else {
+      drupal_set_message('There are some problems with starting instance ' . $instance_id . '. Please, check your settings.');
+    }
+  }
+  elseif ($case == 'stop') {
+    $response = $instance->stop_instances($instance_id);
+    if ($response->isOK()) {
+      $response_obj = $response->body->to_stdClass();
+      drupal_set_message('Instance ' . $instance_id . ' is being stopped now. Its status is ' . $response_obj->instancesSet->item->currentState->name . ' now. Please, wait for a while and refresh the page');
+    }
+    else {
+      drupal_set_message('There are some problems with starting instance ' . $instance_id . '. Please, check your settings.');
+    }
+  }
+/* TODO: expose as a more flexible hook so submodules 
+ * can manage the starting and stopping of specific instances
+  elseif ($case == 'use_for_meetings') {
+    variable_set('aws_ec2_instance_' . $instance_id, 1);
+    drupal_set_message('Instance ' . $instance_id . ' is now used for meetings.');
+  }
+  else {
+    variable_set('aws_ec2_instance_' . $instance_id, 0);
+    drupal_set_message('Instance ' . $instance_id . ' is not used for meetings anymore.');
+  }
+*/
+  drupal_goto('admin/config/media/ec2-instances');
+}
+
+function aws_ec2_management_ajax_callback($form, $form_state) {
+  variable_set('aws_ec2_region', $form_state['values']['region_select']);
+
+  $options = array(
+    'key' => variable_get('aws_key'),
+    'secret' => variable_get('aws_secret'),
+  );
+  // Instantiate the class
+  $instance = new AmazonEC2($options);
+
+  $region = !empty($form_state['values']['region_select']) ? $form_state['values']['region_select'] : variable_get('aws_ec2_region');
+
+  $instance->set_region((string) $region);
+
+
+  $status = $instance->describe_instances();
+
+  // Convert to stdClass object to retrieve data
+  $status_obj = $status->body->to_stdClass();
+
+  $header = array(
+    array('data' => t('Name')),
+    array('data' => t('Instance')),
+    array('data' => t('AMI ID')),
+    array('data' => t('Root device')),
+    array('data' => t('Type')),
+    array('data' => t('State')),
+    array('data' => t('Zone')),
+ //   array('data' => t('Is it used for meetings?')),
+    array('data' => t('Operations'), 'colspan' => 2),
+  );
+
+
+
+  $rows = array();
+  if (!empty($status_obj->reservationSet->item)) {
+    foreach ($status_obj->reservationSet->item as $k => $instance_item) {
+      $_rows = array();
+      if (is_object($instance_item->instancesSet->item->tagSet->item->value)) {
+        $_rows[] = 'unnamed';
+      }
+      else {
+        $_rows[] = $instance_item->instancesSet->item->tagSet->item->value;
+      }
+      $_rows[] = $instance_item->instancesSet->item->instanceId;
+      $_rows[] = $instance_item->instancesSet->item->imageId;
+      $_rows[] = $instance_item->instancesSet->item->rootDeviceType;
+      $_rows[] = $instance_item->instancesSet->item->instanceType;
+      $_rows[] = $instance_item->instancesSet->item->instanceState->name;
+      $_rows[] = $instance_item->instancesSet->item->placement->availabilityZone;
+      $_rows[] = (variable_get('aws_ec2_instance_' . $instance_item->instancesSet->item->instanceId) == 1) ? 'Yes' : 'No';
+/* TODO:
+      $_rows[] = (variable_get('aws_ec2_instance_' . $instance_item->instancesSet->item->instanceId) == 1) ? l('Do not use for meetings', 'instance/' . $instance_item->instancesSet->item->instanceId . '/do-not-use-for-meetings') : l('Use for meetings', 'instance/' . $instance_item->instancesSet->item->instanceId . '/use-for-meetings');
+*/
+      if ($instance_item->instancesSet->item->instanceState->name == 'stopped') {
+        $_rows[] = l('Start', 'instance/' . $instance_item->instancesSet->item->instanceId . '/start');
+      }
+      elseif ($instance_item->instancesSet->item->instanceState->name == 'running') {
+        $_rows[] = l('Stop', 'instance/' . $instance_item->instancesSet->item->instanceId . '/stop');
+      }
+      else { //prevent admin from unneccessary actions
+        $_rows[] = 'Updating...';
+      }
+      $rows[$k] = $_rows;
+    }
+    $markup = theme('table', array('header' => $header, 'rows' => $rows));
+  }
+  else {
+    $markup = 'There is no instances for this region.';
+  }
+  $form['instances_fieldset']['list'] = array(
+    '#type' => 'markup',
+    '#markup' => $markup,
+    '#weight' => -45,
+  );
+  return $form['instances_fieldset'];
+}
+/* TODO: managing the starting and stopping of an instance
+ * This should be separated out but leaving just a hook function 
+ * so it can be called by submodules
+function aws_ec2_management_cron() {
+  include libraries_get_path('awssdk') . '/sdk.class.php';
+  $options = array(
+    'key' => variable_get('aws_key'),
+    'secret' => variable_get('aws_secret'),
+  );
+  $instance = new AmazonEC2($options);
+  $region = variable_get('aws_ec2_region');
+  $instance->set_region((string) $region);
+  $status = $instance->describe_instances();
+  $status_obj = $status->body->to_stdClass();
+  if (!empty($status_obj->reservationSet->item)) {
+    foreach ($status_obj->reservationSet->item as $k => $instance_item) {
+      $q = variable_get('aws_ec2_instance_' . $instance_item->instancesSet->item->instanceId);
+      if (variable_get('aws_ec2_instance_' . $instance_item->instancesSet->item->instanceId) == 1) {
+        if ($instance_item->instancesSet->item->instanceState->name !== 'running') {
+          $select = db_select('field_data_field_meeting_time', 'fmt');
+          $select->fields('fmt', array('field_meeting_time_value'));
+          $result = $select->execute();
+          foreach ($result->fetchCol(0) as $start_time) {
+            $db_tz = date_default_timezone();
+            $date = new DateObject($start_time, $db_tz, NULL);
+            $date->setTimezone(timezone_open('UTC'));
+            $date->modify("-20 minutes");
+            $close_time = $date->format('U');
+            // Find the current UTC time.
+            $now = date_now('UTC');
+            if (date_format($now, 'U') >= $close_time) {
+              $instance->start_instances($instance_item->instancesSet->item->instanceId);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+*/
